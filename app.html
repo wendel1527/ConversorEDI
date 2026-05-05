@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cielo EDI Converter</title>
+<style>
+  /* ── Reset & Tokens ─────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d1117;
+    --surface:   #161b22;
+    --surface2:  #1e2530;
+    --border:    #30363d;
+    --border2:   #21262d;
+    --text:      #e6edf3;
+    --text-muted:#7d8590;
+    --text-dim:  #484f58;
+    --blue:      #1f6feb;
+    --blue-h:    #388bfd;
+    --green:     #238636;
+    --green-h:   #2ea043;
+    --green-t:   #3fb950;
+    --red:       #da3633;
+    --red-t:     #f85149;
+    --yellow:    #9e6a03;
+    --yellow-t:  #e3b341;
+    --orange:    #bd561d;
+    --orange-t:  #f0883e;
+    --purple:    #6e40c9;
+    --purple-t:  #a371f7;
+    --radius:    8px;
+    --radius-lg: 12px;
+    --shadow:    0 8px 24px rgba(1,4,9,.4);
+  }
+
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.5; }
+
+  /* ── Layout ─────────────────────────────────────────────── */
+  .app        { display: flex; flex-direction: column; height: 100vh; }
+  .titlebar   { display: flex; align-items: center; gap: 10px; padding: 12px 20px; background: var(--surface); border-bottom: 1px solid var(--border); user-select: none; flex-shrink: 0; }
+  .titlebar-logo { width: 28px; height: 28px; background: linear-gradient(135deg,#1f6feb,#a371f7); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: #fff; letter-spacing: -1px; flex-shrink: 0; }
+  .titlebar-title { font-size: 15px; font-weight: 600; color: var(--text); }
+  .titlebar-sub   { font-size: 12px; color: var(--text-muted); }
+  .titlebar-spacer { flex: 1; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red-t); transition: background .3s; }
+  .status-dot.ok { background: var(--green-t); }
+  .status-label   { font-size: 12px; color: var(--text-muted); }
+
+  .main { display: flex; flex: 1; overflow: hidden; }
+
+  /* ── Sidebar ─────────────────────────────────────────────── */
+  .sidebar { width: 240px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; }
+  .sidebar-section { padding: 16px 12px 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; color: var(--text-dim); }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; margin: 1px 6px; border-radius: 6px; cursor: pointer; color: var(--text-muted); font-size: 13px; transition: background .15s, color .15s; }
+  .nav-item:hover  { background: var(--surface2); color: var(--text); }
+  .nav-item.active { background: rgba(31,111,235,.15); color: var(--blue-h); }
+  .nav-item svg { flex-shrink: 0; opacity: .8; }
+  .nav-badge { margin-left: auto; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 1px 7px; font-size: 11px; color: var(--text-muted); }
+
+  .sidebar-footer { margin-top: auto; padding: 12px; border-top: 1px solid var(--border2); font-size: 11px; color: var(--text-dim); text-align: center; }
+
+  /* ── Content ─────────────────────────────────────────────── */
+  .content   { flex: 1; overflow-y: auto; padding: 24px 28px; }
+  .page      { display: none; }
+  .page.active { display: block; }
+
+  h2 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .page-desc { color: var(--text-muted); font-size: 13px; margin-bottom: 24px; }
+
+  /* ── Cards ───────────────────────────────────────────────── */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
+  .card-title { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+  .card-title span { color: var(--text); font-size: 14px; text-transform: none; letter-spacing: 0; }
+
+  /* ── Form Controls ───────────────────────────────────────── */
+  label { display: block; font-size: 13px; font-weight: 500; color: var(--text-muted); margin-bottom: 6px; }
+  .input-group { position: relative; display: flex; gap: 8px; margin-bottom: 14px; }
+  input[type=text] { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; color: var(--text); font-size: 13px; outline: none; transition: border-color .15s; }
+  input[type=text]:focus { border-color: var(--blue); }
+  input[type=text]::placeholder { color: var(--text-dim); }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: none; border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; transition: background .15s, opacity .15s, transform .1s; white-space: nowrap; }
+  .btn:active { transform: scale(.97); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-primary   { background: var(--blue);  color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--blue-h); }
+  .btn-success   { background: var(--green); color: #fff; }
+  .btn-success:hover:not(:disabled) { background: var(--green-h); }
+  .btn-ghost     { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-ghost:hover:not(:disabled)   { background: var(--border); }
+  .btn-danger    { background: var(--red);   color: #fff; }
+  .btn-icon { padding: 8px; }
+  .btn-lg { padding: 11px 22px; font-size: 14px; }
+
+  /* ── Drop Zone ───────────────────────────────────────────── */
+  .dropzone { border: 2px dashed var(--border); border-radius: var(--radius-lg); padding: 36px 24px; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; position: relative; margin-bottom: 14px; }
+  .dropzone:hover, .dropzone.drag-over { border-color: var(--blue); background: rgba(31,111,235,.06); }
+  .dropzone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+  .dropzone-icon { font-size: 32px; margin-bottom: 8px; }
+  .dropzone-text { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 4px; }
+  .dropzone-sub  { font-size: 12px; color: var(--text-muted); }
+  .dropzone.has-file { border-color: var(--green); background: rgba(35,134,54,.06); }
+  .dropzone.has-file .dropzone-icon::after { content: '✓'; }
+
+  /* ── Preview Stats ───────────────────────────────────────── */
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .stat-box { background: var(--bg); border: 1px solid var(--border2); border-radius: var(--radius); padding: 14px; }
+  .stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+  .stat-val   { font-size: 22px; font-weight: 700; line-height: 1.1; }
+  .stat-sub   { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .c-blue   { color: var(--blue-h); }
+  .c-green  { color: var(--green-t); }
+  .c-red    { color: var(--red-t); }
+  .c-yellow { color: var(--yellow-t); }
+  .c-purple { color: var(--purple-t); }
+  .c-orange { color: var(--orange-t); }
+  .c-muted  { color: var(--text-muted); }
+
+  /* ── Tag list ────────────────────────────────────────────── */
+  .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .tag { padding: 3px 10px; border-radius: 20px; font-size: 12px; background: var(--surface2); border: 1px solid var(--border); color: var(--text-muted); }
+
+  /* ── Log Console ─────────────────────────────────────────── */
+  .console { background: var(--bg); border: 1px solid var(--border2); border-radius: var(--radius); padding: 14px 16px; font-family: "SF Mono", "Cascadia Code", Consolas, monospace; font-size: 12px; line-height: 1.7; color: #7ee787; min-height: 120px; max-height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+  .console .log-info    { color: var(--text-muted); }
+  .console .log-success { color: var(--green-t); }
+  .console .log-warn    { color: var(--yellow-t); }
+  .console .log-error   { color: var(--red-t); }
+  .console .log-dim     { color: var(--text-dim); }
+
+  /* ── Progress ────────────────────────────────────────────── */
+  .progress-wrap { margin: 14px 0; display: none; }
+  .progress-wrap.show { display: block; }
+  .progress-bar-bg { background: var(--border2); border-radius: 4px; height: 6px; overflow: hidden; }
+  .progress-bar    { height: 100%; background: linear-gradient(90deg, var(--blue), var(--purple-t)); border-radius: 4px; width: 0%; transition: width .3s; animation: pulse-bar 1.5s ease-in-out infinite; }
+  @keyframes pulse-bar { 0%,100%{opacity:1} 50%{opacity:.6} }
+
+  /* ── Result Banner ───────────────────────────────────────── */
+  .result-banner { display: none; border-radius: var(--radius); padding: 14px 18px; margin-bottom: 14px; border: 1px solid; }
+  .result-banner.show { display: flex; align-items: flex-start; gap: 12px; }
+  .result-banner.success { background: rgba(35,134,54,.12); border-color: rgba(63,185,80,.25); }
+  .result-banner.error   { background: rgba(218,54,51,.1);  border-color: rgba(248,81,73,.25); }
+  .result-banner-icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
+  .result-banner-text  { flex: 1; }
+  .result-banner-title { font-weight: 600; margin-bottom: 2px; }
+  .result-banner-sub   { font-size: 12px; color: var(--text-muted); word-break: break-all; }
+
+  /* ── Error Table ─────────────────────────────────────────── */
+  .error-table-wrap { display: none; }
+  .error-table-wrap.show { display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { background: var(--surface2); color: var(--text-muted); font-weight: 600; text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--border2); color: var(--text); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface2); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .badge-red    { background: rgba(248,81,73,.15); color: var(--red-t); border: 1px solid rgba(248,81,73,.3); }
+  .badge-yellow { background: rgba(227,179,65,.12); color: var(--yellow-t); border: 1px solid rgba(227,179,65,.3); }
+  .badge-green  { background: rgba(63,185,80,.12);  color: var(--green-t);  border: 1px solid rgba(63,185,80,.3); }
+
+  /* ── History ─────────────────────────────────────────────── */
+  .history-list { display: flex; flex-direction: column; gap: 8px; }
+  .history-item { display: flex; align-items: center; gap: 12px; background: var(--bg); border: 1px solid var(--border2); border-radius: var(--radius); padding: 12px 14px; }
+  .history-icon { width: 36px; height: 36px; border-radius: 8px; background: rgba(35,134,54,.15); border: 1px solid rgba(63,185,80,.2); display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+  .history-name { font-size: 13px; font-weight: 500; color: var(--text); }
+  .history-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .history-spacer { flex: 1; }
+  .empty-state { text-align: center; padding: 48px 24px; color: var(--text-dim); }
+  .empty-state-icon { font-size: 40px; margin-bottom: 12px; opacity: .5; }
+  .empty-state-text { font-size: 14px; }
+
+  /* ── Settings ────────────────────────────────────────────── */
+  .setting-row { display: flex; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--border2); }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-info { flex: 1; }
+  .setting-label { font-size: 13px; font-weight: 500; }
+  .setting-desc  { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  /* ── Spinner ─────────────────────────────────────────────── */
+  .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Scrollbar ───────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+  /* ── Divider ─────────────────────────────────────────────── */
+  .divider { height: 1px; background: var(--border2); margin: 16px 0; }
+
+  /* ── Tooltip-like info ───────────────────────────────────── */
+  .info-box { background: rgba(31,111,235,.08); border: 1px solid rgba(31,111,235,.2); border-radius: var(--radius); padding: 10px 14px; font-size: 12px; color: var(--text-muted); margin-bottom: 14px; display: flex; gap: 10px; align-items: flex-start; }
+  .info-box-icon { color: var(--blue-h); flex-shrink: 0; margin-top: 1px; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Titlebar ── -->
+  <div class="titlebar">
+    <div class="titlebar-logo">C4</div>
+    <div>
+      <div class="titlebar-title">Cielo EDI Converter</div>
+      <div class="titlebar-sub">CSV Recebíveis → CIELO04D (v15.15)</div>
+    </div>
+    <div class="titlebar-spacer"></div>
+    <div class="status-dot" id="statusDot"></div>
+    <div class="status-label" id="statusLabel">Conectando...</div>
+  </div>
+
+  <div class="main">
+
+    <!-- ── Sidebar ── -->
+    <nav class="sidebar">
+      <div class="sidebar-section">Menu</div>
+
+      <div class="nav-item active" onclick="showPage('converter')" id="nav-converter">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z"/>
+          <path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3zM3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9H3.1z"/>
+        </svg>
+        Converter
+      </div>
+
+      <div class="nav-item" onclick="showPage('historico')" id="nav-historico">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M1.5 1.5A.5.5 0 0 1 2 1h12a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.128.334L10 8.692V13.5a.5.5 0 0 1-.342.474l-3 1A.5.5 0 0 1 6 14.5V8.692L1.628 3.834A.5.5 0 0 1 1.5 3.5v-2z"/>
+        </svg>
+        Histórico
+        <span class="nav-badge" id="histBadge">0</span>
+      </div>
+
+      <div class="nav-item" onclick="showPage('ajuda')" id="nav-ajuda">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-.977 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1.01.927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.029-.94-.584 0-1.009.388-1.009.94z"/>
+          <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 13A6 6 0 1 1 8 2a6 6 0 0 1 0 12z"/>
+        </svg>
+        Ajuda
+      </div>
+
+      <div class="sidebar-footer">Manual Cielo v15.15</div>
+    </nav>
+
+    <!-- ── Content ── -->
+    <main class="content">
+
+      <!-- PAGE: Converter ────────────────────────────────── -->
+      <div class="page active" id="page-converter">
+        <h2>Converter CSV → EDI</h2>
+        <p class="page-desc">Selecione o arquivo CSV exportado do portal Cielo e a pasta de saída.</p>
+
+        <!-- Arquivo CSV -->
+        <div class="card">
+          <div class="card-title">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 0h5.293A1 1 0 0 1 10 .293L13.707 4a1 1 0 0 1 .293.707V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2zm5.5 1.5v2a1 1 0 0 0 1 1h2L9.5 1.5z"/></svg>
+            <span>Arquivo de entrada</span>
+          </div>
+
+          <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+            <input type="file" id="fileInput" accept=".csv,.CSV" style="display:none" onchange="onFileSelected(event)">
+            <div class="dropzone-icon" id="dropIcon">📂</div>
+            <div class="dropzone-text" id="dropText">Clique ou arraste o arquivo CSV aqui</div>
+            <div class="dropzone-sub" id="dropSub">Exportação do portal Cielo · separador ; · encoding latin-1</div>
+          </div>
+
+          <!-- Preview -->
+          <div id="previewArea" style="display:none">
+            <div class="stats-grid" id="statsGrid"></div>
+            <div class="divider"></div>
+            <div style="display:flex; gap:16px; flex-wrap:wrap">
+              <div style="flex:1; min-width:160px">
+                <div class="tag-list" id="tagBandeiras"></div>
+              </div>
+              <div style="flex:1; min-width:160px">
+                <div class="tag-list" id="tagEstabs"></div>
+              </div>
+            </div>
+            <div class="divider"></div>
+            <div class="info-box">
+              <div class="info-box-icon">ℹ</div>
+              <div>Somente lançamentos com <strong>Valor bruto &gt; 0</strong> serão convertidos. Cancelamentos e estornos são ignorados e ficam a cargo do analista financeiro.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pasta de saída -->
+        <div class="card">
+          <div class="card-title">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.825a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3zm-8.322.12C1.72 3.042 1.95 3 2.19 3h5.396l-.707-.707A1 1 0 0 0 6.172 2H2.5a1 1 0 0 0-1 .981l.006.139z"/></svg>
+            <span>Pasta de saída</span>
+          </div>
+          <label>Onde salvar o arquivo EDI gerado</label>
+          <div class="input-group">
+            <input type="text" id="outputPath" placeholder="Deixe em branco para usar a pasta output/ padrão">
+            <button class="btn btn-ghost" onclick="usarPastaDefault()">Padrão</button>
+          </div>
+          <div class="info-box" style="margin-bottom:0">
+            <div class="info-box-icon">📁</div>
+            <div>Nome do arquivo gerado: <strong>CIELO04D_&lt;estab&gt;_&lt;data_ini&gt;_&lt;data_fim&gt;.txt</strong></div>
+          </div>
+        </div>
+
+        <!-- Botão converter -->
+        <div style="display:flex; gap:10px; margin-bottom:16px">
+          <button class="btn btn-success btn-lg" id="btnConverter" onclick="executarConversao()" disabled>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z"/><path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3zM3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9H3.1z"/></svg>
+            Converter
+          </button>
+          <button class="btn btn-ghost" onclick="limpar()">Limpar</button>
+        </div>
+
+        <!-- Progress -->
+        <div class="progress-wrap" id="progressWrap">
+          <div class="progress-bar-bg"><div class="progress-bar" id="progressBar" style="width:60%"></div></div>
+          <div style="font-size:12px; color:var(--text-muted); margin-top:6px" id="progressLabel">Processando...</div>
+        </div>
+
+        <!-- Result banner -->
+        <div class="result-banner" id="resultBanner">
+          <div class="result-banner-icon" id="resultIcon"></div>
+          <div class="result-banner-text">
+            <div class="result-banner-title" id="resultTitle"></div>
+            <div class="result-banner-sub"  id="resultSub"></div>
+          </div>
+          <button class="btn btn-ghost" id="btnAbrirPasta" onclick="abrirPasta()" style="display:none">Abrir pasta</button>
+        </div>
+
+        <!-- Tabela de erros -->
+        <div class="error-table-wrap" id="errorTableWrap">
+          <div class="card-title" style="margin-bottom:10px">
+            <span style="color:var(--red-t)">⚠ Linhas com erro — corrija no CSV e reconverta</span>
+          </div>
+          <table id="errorTable">
+            <thead><tr>
+              <th>#</th><th>Linha CSV</th><th>Estabelecimento</th><th>Autorização</th><th>NSU</th><th>Descrição do erro</th>
+            </tr></thead>
+            <tbody id="errorTbody"></tbody>
+          </table>
+        </div>
+
+        <!-- Console log -->
+        <div class="card" id="consoleCard" style="display:none">
+          <div class="card-title">
+            <span>Log de conversão</span>
+            <button class="btn btn-ghost" style="margin-left:auto;padding:2px 8px;font-size:11px" onclick="document.getElementById('consoleCard').style.display='none'">Fechar</button>
+          </div>
+          <div class="console" id="consoleLog"></div>
+        </div>
+      </div>
+
+      <!-- PAGE: Histórico ────────────────────────────────── -->
+      <div class="page" id="page-historico">
+        <h2>Histórico de conversões</h2>
+        <p class="page-desc">Arquivos gerados nesta sessão.</p>
+        <div class="history-list" id="historyList">
+          <div class="empty-state">
+            <div class="empty-state-icon">📋</div>
+            <div class="empty-state-text">Nenhuma conversão realizada ainda.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE: Ajuda ────────────────────────────────────── -->
+      <div class="page" id="page-ajuda">
+        <h2>Ajuda e Documentação</h2>
+        <p class="page-desc">Referência rápida sobre o uso da aplicação.</p>
+
+        <div class="card">
+          <div class="card-title"><span>Como usar</span></div>
+          <div style="display:flex;flex-direction:column;gap:14px;font-size:13px;color:var(--text-muted)">
+            <div style="display:flex;gap:12px">
+              <div style="width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0">1</div>
+              <div><strong style="color:var(--text)">Exporte o CSV do portal Cielo</strong><br>Acesse o portal → Relatórios → Recebíveis Detalhado → Exportar CSV</div>
+            </div>
+            <div style="display:flex;gap:12px">
+              <div style="width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0">2</div>
+              <div><strong style="color:var(--text)">Selecione o arquivo CSV</strong><br>Clique na área de upload ou arraste o arquivo diretamente</div>
+            </div>
+            <div style="display:flex;gap:12px">
+              <div style="width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0">3</div>
+              <div><strong style="color:var(--text)">Clique em Converter</strong><br>O arquivo EDI será gerado na pasta de saída selecionada</div>
+            </div>
+            <div style="display:flex;gap:12px">
+              <div style="width:26px;height:26px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0">✓</div>
+              <div><strong style="color:var(--text)">Arquivo gerado</strong><br>Formato: <code style="background:var(--bg);padding:1px 6px;border-radius:4px">CIELO04D_&lt;estab&gt;_&lt;data_ini&gt;_&lt;data_fim&gt;.txt</code></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>Filtros aplicados automaticamente</span></div>
+          <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:8px">
+            <div>✅ <strong style="color:var(--text)">Incluídos:</strong> Lançamentos com Valor bruto &gt; 0 (créditos/recebíveis)</div>
+            <div>❌ <strong style="color:var(--text)">Excluídos:</strong> Cancelamentos de venda, chargebacks, estornos (valor negativo)</div>
+            <div style="margin-top:4px;padding:10px;background:rgba(227,179,65,.08);border:1px solid rgba(227,179,65,.2);border-radius:6px">
+              ⚠ Lançamentos excluídos ficam a cargo do analista financeiro para tratativa manual.
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>Relatório de erros</span></div>
+          <div style="font-size:13px;color:var(--text-muted)">
+            Se alguma linha do CSV não puder ser convertida, a aplicação:<br><br>
+            • Continua a conversão das demais linhas<br>
+            • Exibe uma tabela com a <strong style="color:var(--text)">linha do CSV</strong>, <strong style="color:var(--text)">estabelecimento</strong>, <strong style="color:var(--text)">código de autorização</strong>, <strong style="color:var(--text)">NSU</strong> e a descrição do erro<br>
+            • Gera o arquivo EDI sem as linhas com erro<br><br>
+            Corrija as linhas indicadas no CSV e reconverta o arquivo.
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>Sobre</span></div>
+          <div style="font-size:13px;color:var(--text-muted)">
+            <div>Versão: <strong style="color:var(--text)">1.0.0</strong></div>
+            <div>Especificação: <strong style="color:var(--text)">Manual Extrato Eletrônico Cielo v15.15 (fev/2026)</strong></div>
+            <div>Suporte: <strong style="color:var(--text)">CIELO04 — Liquidação/Pagamento</strong></div>
+            <div style="margin-top:8px">Registros gerados: <strong style="color:var(--text)">0 · D · E · 9</strong></div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script>
+// ── Estado da aplicação ──────────────────────────────────────
+const state = {
+  arquivoCSV:   null,
+  pastaSaida:   '',
+  historico:    [],
+  ultimaPasta:  '',
+};
+
+// ── Inicialização ────────────────────────────────────────────
+async function init() {
+  await checarStatus();
+  setInterval(checarStatus, 10000);
+  configurarDropzone();
+}
+
+async function checarStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    const dot   = document.getElementById('statusDot');
+    const label = document.getElementById('statusLabel');
+    if (d.ok) {
+      dot.className   = 'status-dot ok';
+      label.textContent = 'Conversor pronto';
+    } else {
+      dot.className   = 'status-dot';
+      label.textContent = 'Erro: ' + d.erro;
+    }
+  } catch {
+    document.getElementById('statusDot').className = 'status-dot';
+    document.getElementById('statusLabel').textContent = 'Servidor desconectado';
+  }
+}
+
+// ── Navegação ────────────────────────────────────────────────
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  document.getElementById('nav-' + id).classList.add('active');
+}
+
+// ── Dropzone ─────────────────────────────────────────────────
+function configurarDropzone() {
+  const dz = document.getElementById('dropzone');
+  dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('drag-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault();
+    dz.classList.remove('drag-over');
+    const files = e.dataTransfer.files;
+    if (files.length) processarArquivo(files[0]);
+  });
+}
+
+function onFileSelected(event) {
+  const file = event.target.files[0];
+  if (file) processarArquivo(file);
+}
+
+async function processarArquivo(file) {
+  // No browser, não temos o path real do arquivo (segurança do browser)
+  // Precisamos do path completo. Usamos o campo de texto como fallback.
+  // Estratégia: se o nome do arquivo aparece na pasta input/, usar esse path.
+  const dz = document.getElementById('dropzone');
+
+  // Tentar listar a pasta input/ para encontrar o arquivo
+  try {
+    const r = await fetch('/api/listar_csvs');
+    const d = await r.json();
+    const match = d.arquivos.find(f => f.endsWith('/' + file.name) || f.endsWith('\\' + file.name));
+    if (match) {
+      state.arquivoCSV = match;
+      await mostrarPreview(match);
+      return;
+    }
+  } catch {}
+
+  // Arquivo não está na pasta input/ — orientar o usuário
+  document.getElementById('dropText').textContent = '⚠ Cole o caminho completo abaixo';
+  document.getElementById('dropSub').textContent  = file.name + ' · informe o caminho completo';
+  dz.classList.add('has-file');
+  mostrarCampoCaminho(file.name);
+}
+
+function mostrarCampoCaminho(nome) {
+  // Criar campo de caminho se não existir
+  if (!document.getElementById('pathInput')) {
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.id = 'pathInput';
+    inp.placeholder = 'Ex: C:\\Users\\usuario\\Downloads\\' + nome;
+    inp.style.cssText = 'width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;outline:none;margin-top:12px;box-sizing:border-box';
+    inp.oninput = async () => {
+      const p = inp.value.trim();
+      if (p.length > 5) {
+        state.arquivoCSV = p;
+        await mostrarPreview(p);
+      }
+    };
+    document.getElementById('dropzone').after(inp);
+  }
+}
+
+async function mostrarPreview(caminho) {
+  try {
+    const r = await fetch('/api/preview_csv?arquivo=' + encodeURIComponent(caminho));
+    const d = await r.json();
+
+    if (!d.ok) {
+      document.getElementById('dropSub').textContent = '❌ ' + d.erro;
+      return;
+    }
+
+    // Atualizar dropzone
+    const dz = document.getElementById('dropzone');
+    dz.classList.add('has-file');
+    document.getElementById('dropIcon').textContent = '✅';
+    const nome = caminho.split(/[\\/]/).pop();
+    document.getElementById('dropText').textContent = nome;
+    document.getElementById('dropSub').textContent  = `${d.total_linhas} linhas · ${d.creditos} créditos · ${d.debitos} filtr.`;
+
+    // Stats
+    const sg = document.getElementById('statsGrid');
+    sg.innerHTML = `
+      <div class="stat-box"><div class="stat-label">Total</div><div class="stat-val c-blue">${d.total_linhas}</div><div class="stat-sub">linhas lidas</div></div>
+      <div class="stat-box"><div class="stat-label">Créditos</div><div class="stat-val c-green">${d.creditos}</div><div class="stat-sub">serão convertidos</div></div>
+      <div class="stat-box"><div class="stat-label">Filtrados</div><div class="stat-val c-red">${d.debitos}</div><div class="stat-sub">cancelamentos/débitos</div></div>
+      <div class="stat-box"><div class="stat-label">Período</div><div class="stat-val c-purple" style="font-size:13px;margin-top:4px">${d.data_ini}<br>${d.data_fim}</div></div>
+    `;
+
+    // Tags bandeiras
+    document.getElementById('tagBandeiras').innerHTML = d.bandeiras.map(b =>
+      `<span class="tag">💳 ${b}</span>`).join('');
+
+    // Tags estabelecimentos
+    document.getElementById('tagEstabs').innerHTML = d.estabelecimentos.map(e =>
+      `<span class="tag">🏪 ${e}</span>`).join('');
+
+    document.getElementById('previewArea').style.display = 'block';
+    document.getElementById('btnConverter').disabled = false;
+
+    state.arquivoCSV = caminho;
+
+  } catch (e) {
+    document.getElementById('dropSub').textContent = '❌ Erro ao fazer preview: ' + e.message;
+  }
+}
+
+function usarPastaDefault() {
+  document.getElementById('outputPath').value = '';
+  document.getElementById('outputPath').placeholder = 'Pasta padrão: output/ (junto ao conversor)';
+}
+
+// ── Conversão ────────────────────────────────────────────────
+async function executarConversao() {
+  if (!state.arquivoCSV) return;
+
+  const btn = document.getElementById('btnConverter');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Convertendo...';
+
+  // Mostrar progress
+  document.getElementById('progressWrap').classList.add('show');
+  document.getElementById('progressLabel').textContent = 'Processando arquivo...';
+  document.getElementById('progressBar').style.width = '70%';
+
+  // Limpar resultados anteriores
+  ocultarResultados();
+
+  const pastaSaida = document.getElementById('outputPath').value.trim();
+
+  try {
+    const r = await fetch('/api/converter', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ arquivo_csv: state.arquivoCSV, pasta_saida: pastaSaida }),
+    });
+    const d = await r.json();
+
+    document.getElementById('progressBar').style.width = '100%';
+    setTimeout(() => document.getElementById('progressWrap').classList.remove('show'), 600);
+
+    if (d.ok) {
+      mostrarSucesso(d.arquivo_gerado, d.log);
+      adicionarHistorico(d.arquivo_gerado, state.arquivoCSV);
+    } else {
+      mostrarErro(d.erro, d.log);
+    }
+
+    // Exibir log
+    if (d.log) {
+      document.getElementById('consoleCard').style.display = 'block';
+      renderizarLog(d.log);
+    }
+
+    // Exibir erros de linha
+    const erros = extrairErros(d.log || '');
+    if (erros.length) renderizarTabelaErros(erros);
+
+  } catch (e) {
+    document.getElementById('progressWrap').classList.remove('show');
+    mostrarErro('Erro de comunicação com o servidor: ' + e.message, '');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z"/><path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3zM3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9H3.1z"/></svg> Converter`;
+  }
+}
+
+function mostrarSucesso(arquivo, log) {
+  const nome = arquivo.split(/[\\/]/).pop();
+  const pasta = arquivo.substring(0, arquivo.lastIndexOf('/') > -1 ? arquivo.lastIndexOf('/') : arquivo.lastIndexOf('\\'));
+  state.ultimaPasta = pasta;
+
+  const b = document.getElementById('resultBanner');
+  b.className = 'result-banner show success';
+  document.getElementById('resultIcon').textContent  = '✅';
+  document.getElementById('resultTitle').textContent = 'Conversão concluída com sucesso!';
+  document.getElementById('resultSub').textContent   = arquivo;
+  document.getElementById('btnAbrirPasta').style.display = 'inline-flex';
+}
+
+function mostrarErro(erro, log) {
+  const b = document.getElementById('resultBanner');
+  b.className = 'result-banner show error';
+  document.getElementById('resultIcon').textContent  = '❌';
+  document.getElementById('resultTitle').textContent = 'Erro na conversão';
+  document.getElementById('resultSub').textContent   = erro.split('\n')[0];
+  document.getElementById('btnAbrirPasta').style.display = 'none';
+}
+
+function ocultarResultados() {
+  document.getElementById('resultBanner').className = 'result-banner';
+  document.getElementById('errorTableWrap').className = 'error-table-wrap';
+  document.getElementById('consoleCard').style.display = 'none';
+  document.getElementById('btnAbrirPasta').style.display = 'none';
+}
+
+function renderizarLog(log) {
+  const el = document.getElementById('consoleLog');
+  const lines = log.split('\n');
+  el.innerHTML = lines.map(l => {
+    if (l.includes('✅') || l.includes('Concluído'))  return `<span class="log-success">${esc(l)}</span>`;
+    if (l.includes('❌') || l.includes('Erro'))        return `<span class="log-error">${esc(l)}</span>`;
+    if (l.includes('⚠') || l.includes('Filtrad'))    return `<span class="log-warn">${esc(l)}</span>`;
+    if (l.includes('»') || l.includes('Lendo'))       return `<span class="log-info">${esc(l)}</span>`;
+    if (l.trim() === '' || l.includes('---') || l.includes('===')) return `<span class="log-dim">${esc(l)}</span>`;
+    return `<span>${esc(l)}</span>`;
+  }).join('\n');
+  el.scrollTop = el.scrollHeight;
+}
+
+function extrairErros(log) {
+  const erros = [];
+  const re = /\[(\d{2})\]\s+\[Reg E\]\s+Linha CSV (\S+)\s+\|\s+Estab (\S+)\s+\|\s+Auth (\S+)\s+\|\s+NSU (\S+)\s+\|\s+Erro:\s+(.+)/g;
+  let m;
+  while ((m = re.exec(log)) !== null) {
+    erros.push({ seq: m[1], linha: m[2], estab: m[3], auth: m[4], nsu: m[5], erro: m[6] });
+  }
+  return erros;
+}
+
+function renderizarTabelaErros(erros) {
+  const wrap = document.getElementById('errorTableWrap');
+  wrap.className = 'error-table-wrap show';
+  const tbody = document.getElementById('errorTbody');
+  tbody.innerHTML = erros.map(e => `
+    <tr>
+      <td><span class="badge badge-red">${e.seq}</span></td>
+      <td><strong>${e.linha}</strong></td>
+      <td><code style="font-size:11px">${e.estab}</code></td>
+      <td><code style="font-size:11px">${e.auth}</code></td>
+      <td><code style="font-size:11px">${e.nsu}</code></td>
+      <td style="color:var(--red-t)">${esc(e.erro)}</td>
+    </tr>
+  `).join('');
+}
+
+// ── Pasta e Histórico ────────────────────────────────────────
+async function abrirPasta() {
+  await fetch('/api/abrir_pasta', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ pasta: state.ultimaPasta }),
+  });
+}
+
+function adicionarHistorico(arquivo, csvOrigem) {
+  const nome   = arquivo.split(/[\\/]/).pop();
+  const agora  = new Date().toLocaleString('pt-BR');
+  state.historico.unshift({ arquivo, nome, csvOrigem, agora });
+
+  // Atualizar badge
+  document.getElementById('histBadge').textContent = state.historico.length;
+
+  // Renderizar lista
+  const lista = document.getElementById('historyList');
+  lista.innerHTML = state.historico.map(h => `
+    <div class="history-item">
+      <div class="history-icon">📄</div>
+      <div>
+        <div class="history-name">${esc(h.nome)}</div>
+        <div class="history-meta">${esc(h.agora)} · ${esc(h.csvOrigem.split(/[\\/]/).pop())}</div>
+      </div>
+      <div class="history-spacer"></div>
+      <button class="btn btn-ghost" style="font-size:12px" onclick="navigator.clipboard.writeText('${esc(h.arquivo)}')">Copiar caminho</button>
+    </div>
+  `).join('');
+}
+
+function limpar() {
+  state.arquivoCSV = null;
+  document.getElementById('dropzone').classList.remove('has-file');
+  document.getElementById('dropIcon').textContent = '📂';
+  document.getElementById('dropText').textContent = 'Clique ou arraste o arquivo CSV aqui';
+  document.getElementById('dropSub').textContent  = 'Exportação do portal Cielo · separador ; · encoding latin-1';
+  document.getElementById('previewArea').style.display = 'none';
+  document.getElementById('btnConverter').disabled = true;
+  const pi = document.getElementById('pathInput');
+  if (pi) pi.remove();
+  ocultarResultados();
+  document.getElementById('fileInput').value = '';
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Iniciar ───────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
