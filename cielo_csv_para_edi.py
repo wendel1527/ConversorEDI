@@ -2,6 +2,7 @@
 =============================================================================
   Conversor: CSV Recebíveis Cielo (portal) → EDI Posição Fixa (CIELO04D)
   Manual de Especificação Técnica v15.15 – fev/2026
+  Versão 1.0.1 – correção _estab() para CNPJ formatado
 =============================================================================
   Entrada  : CSV exportado do portal Cielo (separador ';', encoding latin-1)
              Pasta: input/
@@ -171,6 +172,21 @@ def _n(val, tam: int) -> str:
     except (ValueError, TypeError):
         v = 0
     return str(abs(v)).zfill(tam)[-tam:]
+
+
+def _estab(val, tam: int = 10) -> str:
+    """
+    Formata número de estabelecimento/CNPJ para o EDI.
+    Remove pontuação (pontos, barras, traços) antes de aplicar zfill.
+    Ex: '28.084.180/30'   → '2808418030'
+        '028.084.180/0001-90' → '0280841800'  (trunca para tam)
+        '1028105247'       → '1028105247'
+    Use SEMPRE este helper para campos de estabelecimento — nunca _n().
+    """
+    s = re.sub(r"[.\-/]", "", str(val or "").strip())
+    # Manter apenas dígitos
+    s = re.sub(r"\D", "", s)
+    return s.zfill(tam)[-tam:]
 
 
 def _a(val, tam: int) -> str:
@@ -443,7 +459,7 @@ def gerar_registro_0(meta: dict, sequencia: int = 1) -> str:
     """
     Registro 0 – Header (250 posições).
     """
-    estab    = _n(meta["estabelecimento"], 10)
+    estab    = _estab(meta["estabelecimento"], 10)
     dt_proc  = meta["data_proc"]          # AAAAMMDD
     dt_ini   = meta["data_ini"]           # AAAAMMDD
     dt_fim   = meta["data_fim"]           # AAAAMMDD
@@ -486,7 +502,7 @@ def gerar_registro_d(grupo: list[dict], meta: dict) -> str:
     ref = grupo[0]  # linha de referência para campos fixos do grupo
 
     estab_linha  = str(ref.get("Estabelecimento", meta["estabelecimento"])).strip()
-    estab        = _n(estab_linha, 10)
+    estab        = _estab(estab_linha, 10)
 
     # CPF/CNPJ: extrair da chave_ur (contém o cpf do recebedor deste estabelecimento)
     chave_ref    = ref.get("Código da Unidade de recebível", "")
@@ -498,7 +514,7 @@ def gerar_registro_d(grupo: list[dict], meta: dict) -> str:
 
     forma_csv    = ref.get("Forma de pagamento", "")
     tipo_liq     = _tipo_liquidacao_from_forma(forma_csv)
-    matriz_pag   = _n(estab_linha, 10)   # matriz = o próprio estab da linha
+    matriz_pag   = _estab(estab_linha, 10)   # matriz = o próprio estab da linha
 
     status_txt   = ref.get("Status de pagamento", "Pago")
     status_cod   = _lookup(STATUS_PAGAMENTO, status_txt, "03")
@@ -535,7 +551,7 @@ def gerar_registro_d(grupo: list[dict], meta: dict) -> str:
     dt_pag   = _dt_para_ddmmaaaa(ref.get("Data de pagamento", ""))
     dt_pag2  = dt_pag
     dt_pag3  = dt_pag
-    recebedor_estab = _n(estab_linha, 10)
+    recebedor_estab = _estab(estab_linha, 10)
     flags    = "NNN"
     cpf_neg  = _a("0" * 14, 14)
 
@@ -583,7 +599,7 @@ def gerar_registro_e(row: dict, meta: dict) -> str:
     Suporta múltiplos estabelecimentos: cpf_cnpj extraído da chave_ur da linha.
     """
     estab_linha  = str(row.get("Estabelecimento", meta["estabelecimento"])).strip()
-    estab        = _n(estab_linha, 10)
+    estab        = _estab(estab_linha, 10)
 
     # CPF/CNPJ do recebedor: extrair da chave_ur desta linha
     chave_linha  = row.get("Código da Unidade de recebível", "")
@@ -722,7 +738,7 @@ def gerar_registro_e(row: dict, meta: dict) -> str:
         tipo_trans = "000"  # cancelamentos, negociações, ajustes
 
     # Matriz de pagamento: usar o estabelecimento da linha (pode ser filial)
-    matriz_pag  = _n(estab_linha, 10)
+    matriz_pag  = _estab(estab_linha, 10)
 
     # Datas: para cancelamentos, dt_capt e dt_lanc = Data do lançamento (quando ocorreu)
     # Para vendas normais, dt_capt = dt_lanc = Data do lançamento (ou Data da venda)
