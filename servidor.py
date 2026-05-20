@@ -81,7 +81,7 @@ class CieloHandler(http.server.BaseHTTPRequestHandler):
             self._send_json({
                 "ok": CONVERSOR_OK,
                 "erro": "" if CONVERSOR_OK else IMPORT_ERROR,
-                "versao": "1.0.0",
+                "versao": "1.1.0",
             })
             return
 
@@ -131,6 +131,39 @@ class CieloHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "erro": str(e)}, 400)
             return
 
+        if parsed.path == "/api/download":
+            qs       = parse_qs(parsed.query)
+            arquivo  = qs.get("arquivo", [""])[0]
+            p        = Path(arquivo)
+            output_dir = (BASE_DIR / "output").resolve()
+            try:
+                p.resolve().relative_to(output_dir)
+            except ValueError:
+                self._send_json({"erro": "Acesso negado"}, 403)
+                return
+            if not p.exists() or not p.is_file():
+                self._send_json({"erro": "Arquivo não encontrado"}, 404)
+                return
+            content = p.read_bytes()
+            nome    = p.name
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Disposition", f'attachment; filename="{nome}"')
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(content)
+            return
+
+        if parsed.path == "/api/listar_edis":
+            p = BASE_DIR / "output"
+            if not p.exists():
+                self._send_json({"arquivos": []})
+                return
+            arquivos = sorted(str(f) for f in p.glob("*.txt"))
+            self._send_json({"arquivos": arquivos})
+            return
+
         # Servir arquivos estáticos da pasta do app
         file_path = BASE_DIR / path.lstrip("/")
         if file_path.exists() and file_path.is_file():
@@ -149,6 +182,63 @@ class CieloHandler(http.server.BaseHTTPRequestHandler):
             data = json.loads(body) if body else {}
         except json.JSONDecodeError:
             self._send_json({"erro": "JSON inválido"}, 400)
+            return
+
+        if path == "/api/upload":
+            content_type = self.headers.get("Content-Type", "")
+            if "multipart/form-data" not in content_type:
+                self._send_json({"erro": "Content-Type deve ser multipart/form-data"}, 400)
+                return
+            # Extrair boundary
+            boundary = None
+            for part in content_type.split(";"):
+                part = part.strip()
+                if part.startswith("boundary="):
+                    boundary = part[len("boundary="):].strip().encode()
+                    break
+            if not boundary:
+                self._send_json({"erro": "Boundary não encontrado"}, 400)
+                return
+            # Ler corpo
+            raw = self.rfile.read(length)
+            # Parser manual de multipart — extrai o primeiro arquivo .csv
+            delimiter = b"--" + boundary
+            parts     = raw.split(delimiter)
+            destino   = None
+            for part in parts:
+                if b'filename=' not in part:
+                    continue
+                # Separar cabeçalhos do conteúdo
+                if b"\r\n\r\n" in part:
+                    headers_raw, file_content = part.split(b"\r\n\r\n", 1)
+                else:
+                    continue
+                # Remover o \r\n final adicionado pelo multipart
+                if file_content.endswith(b"\r\n"):
+                    file_content = file_content[:-2]
+                # Extrair nome do arquivo
+                nome_arquivo = None
+                for h in headers_raw.decode("latin-1", errors="replace").split("\r\n"):
+                    if "filename=" in h:
+                        import re as _re
+                        m = _re.search(r'filename="([^"]+)"', h)
+                        if m:
+                            nome_arquivo = Path(m.group(1)).name
+                            break
+                if not nome_arquivo:
+                    continue
+                if not nome_arquivo.lower().endswith(".csv"):
+                    self._send_json({"erro": "Apenas arquivos .csv são aceitos"}, 400)
+                    return
+                input_dir = BASE_DIR / "input"
+                input_dir.mkdir(exist_ok=True)
+                destino = input_dir / nome_arquivo
+                destino.write_bytes(file_content)
+                break
+            if destino and destino.exists():
+                self._send_json({"ok": True, "arquivo": str(destino), "nome": destino.name})
+            else:
+                self._send_json({"erro": "Nenhum arquivo CSV encontrado no upload"}, 400)
             return
 
         if path == "/api/converter":
