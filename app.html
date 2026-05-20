@@ -326,6 +326,10 @@
             <div class="result-banner-sub"  id="resultSub"></div>
           </div>
           <button class="btn btn-ghost" id="btnAbrirPasta" onclick="abrirPasta()" style="display:none">Abrir pasta</button>
+          <button class="btn btn-primary" id="btnDownload" onclick="baixarEDI()" style="display:none">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/></svg>
+            Baixar EDI
+          </button>
         </div>
 
         <!-- Tabela de erros -->
@@ -415,7 +419,7 @@
         <div class="card">
           <div class="card-title"><span>Sobre</span></div>
           <div style="font-size:13px;color:var(--text-muted)">
-            <div>Versão: <strong style="color:var(--text)">1.0.0</strong></div>
+            <div>Versão: <strong style="color:var(--text)">1.1.0</strong></div>
             <div>Especificação: <strong style="color:var(--text)">Manual Extrato Eletrônico Cielo v15.15 (fev/2026)</strong></div>
             <div>Suporte: <strong style="color:var(--text)">CIELO04 — Liquidação/Pagamento</strong></div>
             <div style="margin-top:8px">Registros gerados: <strong style="color:var(--text)">0 · D · E · 9</strong></div>
@@ -430,10 +434,11 @@
 <script>
 // ── Estado da aplicação ──────────────────────────────────────
 const state = {
-  arquivoCSV:   null,
-  pastaSaida:   '',
-  historico:    [],
-  ultimaPasta:  '',
+  arquivoCSV:    null,
+  pastaSaida:    '',
+  historico:     [],
+  ultimaPasta:   '',
+  ultimoArquivo: '',
 };
 
 // ── Inicialização ────────────────────────────────────────────
@@ -489,45 +494,39 @@ function onFileSelected(event) {
 }
 
 async function processarArquivo(file) {
-  // No browser, não temos o path real do arquivo (segurança do browser)
-  // Precisamos do path completo. Usamos o campo de texto como fallback.
-  // Estratégia: se o nome do arquivo aparece na pasta input/, usar esse path.
   const dz = document.getElementById('dropzone');
 
-  // Tentar listar a pasta input/ para encontrar o arquivo
+  // Mostrar estado de carregando
+  document.getElementById('dropIcon').textContent = '⏳';
+  document.getElementById('dropText').textContent = 'Enviando ' + file.name + '...';
+  document.getElementById('dropSub').textContent  = 'Aguarde o upload';
+  dz.classList.add('has-file');
+
+  // Fazer upload real via /api/upload
   try {
-    const r = await fetch('/api/listar_csvs');
+    const formData = new FormData();
+    formData.append('arquivo', file, file.name);
+
+    const r = await fetch('/api/upload', { method: 'POST', body: formData });
     const d = await r.json();
-    const match = d.arquivos.find(f => f.endsWith('/' + file.name) || f.endsWith('\\' + file.name));
-    if (match) {
-      state.arquivoCSV = match;
-      await mostrarPreview(match);
+
+    if (!d.ok) {
+      document.getElementById('dropIcon').textContent = '❌';
+      document.getElementById('dropText').textContent = 'Erro no upload';
+      document.getElementById('dropSub').textContent  = d.erro;
+      dz.classList.remove('has-file');
       return;
     }
-  } catch {}
 
-  // Arquivo não está na pasta input/ — orientar o usuário
-  document.getElementById('dropText').textContent = '⚠ Cole o caminho completo abaixo';
-  document.getElementById('dropSub').textContent  = file.name + ' · informe o caminho completo';
-  dz.classList.add('has-file');
-  mostrarCampoCaminho(file.name);
-}
+    // Upload ok — carregar preview
+    state.arquivoCSV = d.arquivo;
+    await mostrarPreview(d.arquivo);
 
-function mostrarCampoCaminho(nome) {
-  // Criar campo de caminho se não existir
-  if (!document.getElementById('pathInput')) {
-    const inp = document.createElement('input');
-    inp.type = 'text'; inp.id = 'pathInput';
-    inp.placeholder = 'Ex: C:\\Users\\usuario\\Downloads\\' + nome;
-    inp.style.cssText = 'width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;outline:none;margin-top:12px;box-sizing:border-box';
-    inp.oninput = async () => {
-      const p = inp.value.trim();
-      if (p.length > 5) {
-        state.arquivoCSV = p;
-        await mostrarPreview(p);
-      }
-    };
-    document.getElementById('dropzone').after(inp);
+  } catch (e) {
+    document.getElementById('dropIcon').textContent = '❌';
+    document.getElementById('dropText').textContent = 'Falha na conexão';
+    document.getElementById('dropSub').textContent  = e.message;
+    dz.classList.remove('has-file');
   }
 }
 
@@ -639,14 +638,27 @@ async function executarConversao() {
 function mostrarSucesso(arquivo, log) {
   const nome = arquivo.split(/[\\/]/).pop();
   const pasta = arquivo.substring(0, arquivo.lastIndexOf('/') > -1 ? arquivo.lastIndexOf('/') : arquivo.lastIndexOf('\\'));
-  state.ultimaPasta = pasta;
+  state.ultimaPasta  = pasta;
+  state.ultimoArquivo = arquivo;
 
   const b = document.getElementById('resultBanner');
   b.className = 'result-banner show success';
   document.getElementById('resultIcon').textContent  = '✅';
   document.getElementById('resultTitle').textContent = 'Conversão concluída com sucesso!';
-  document.getElementById('resultSub').textContent   = arquivo;
+  document.getElementById('resultSub').textContent   = nome;
   document.getElementById('btnAbrirPasta').style.display = 'inline-flex';
+  document.getElementById('btnDownload').style.display   = 'inline-flex';
+}
+
+function baixarEDI() {
+  if (!state.ultimoArquivo) return;
+  const url = '/api/download?arquivo=' + encodeURIComponent(state.ultimoArquivo);
+  const a   = document.createElement('a');
+  a.href     = url;
+  a.download = state.ultimoArquivo.split(/[\\/]/).pop();
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 function mostrarErro(erro, log) {
@@ -663,6 +675,7 @@ function ocultarResultados() {
   document.getElementById('errorTableWrap').className = 'error-table-wrap';
   document.getElementById('consoleCard').style.display = 'none';
   document.getElementById('btnAbrirPasta').style.display = 'none';
+  document.getElementById('btnDownload').style.display   = 'none';
 }
 
 function renderizarLog(log) {
@@ -732,7 +745,7 @@ function adicionarHistorico(arquivo, csvOrigem) {
         <div class="history-meta">${esc(h.agora)} · ${esc(h.csvOrigem.split(/[\\/]/).pop())}</div>
       </div>
       <div class="history-spacer"></div>
-      <button class="btn btn-ghost" style="font-size:12px" onclick="navigator.clipboard.writeText('${esc(h.arquivo)}')">Copiar caminho</button>
+      <button class="btn btn-primary" style="font-size:12px" onclick="baixarArquivoHistorico('${esc(h.arquivo)}')">⬇ Baixar EDI</button>
     </div>
   `).join('');
 }
@@ -753,6 +766,16 @@ function limpar() {
 
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function baixarArquivoHistorico(arquivo) {
+  const url = '/api/download?arquivo=' + encodeURIComponent(arquivo);
+  const a   = document.createElement('a');
+  a.href     = url;
+  a.download = arquivo.split(/[\\/]/).pop();
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 // ── Iniciar ───────────────────────────────────────────────────
