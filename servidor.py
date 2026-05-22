@@ -176,14 +176,9 @@ class CieloHandler(http.server.BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path   = parsed.path
 
-        length  = int(self.headers.get("Content-Length", 0))
-        body    = self.rfile.read(length)
-        try:
-            data = json.loads(body) if body else {}
-        except json.JSONDecodeError:
-            self._send_json({"erro": "JSON inválido"}, 400)
-            return
+        length = int(self.headers.get("Content-Length", 0))
 
+        # /api/upload usa multipart/form-data — tratar antes de tentar json.loads
         if path == "/api/upload":
             content_type = self.headers.get("Content-Type", "")
             if "multipart/form-data" not in content_type:
@@ -239,6 +234,14 @@ class CieloHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "arquivo": str(destino), "nome": destino.name})
             else:
                 self._send_json({"erro": "Nenhum arquivo CSV encontrado no upload"}, 400)
+            return
+
+        # Demais rotas usam JSON
+        body = self.rfile.read(length)
+        try:
+            data = json.loads(body) if body else {}
+        except json.JSONDecodeError:
+            self._send_json({"erro": "JSON inválido"}, 400)
             return
 
         if path == "/api/converter":
