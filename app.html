@@ -95,7 +95,35 @@
   .btn-lg { padding: 11px 22px; font-size: 14px; }
 
   /* ── Drop Zone ───────────────────────────────────────────── */
-  .dropzone { border: 2px dashed var(--border); border-radius: var(--radius-lg); padding: 36px 24px; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; position: relative; margin-bottom: 14px; }
+  .adq-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    border-radius: 8px;
+    border: 1.5px solid var(--border);
+    background: var(--surface);
+    color: var(--text-dim);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s;
+    user-select: none;
+  }
+  .adq-btn:hover:not(.adq-disabled) {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .adq-btn.adq-active {
+    border-color: var(--accent);
+    background: rgba(99,102,241,0.08);
+    color: var(--text);
+  }
+  .adq-btn.adq-disabled {
+    opacity: .45;
+    cursor: not-allowed;
+  }
+  .adq-icon { font-size: 15px; } border: 2px dashed var(--border); border-radius: var(--radius-lg); padding: 36px 24px; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; position: relative; margin-bottom: 14px; }
   .dropzone:hover, .dropzone.drag-over { border-color: var(--blue); background: rgba(31,111,235,.06); }
   .dropzone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
   .dropzone-icon { font-size: 32px; margin-bottom: 8px; }
@@ -250,7 +278,29 @@
       <!-- PAGE: Converter ────────────────────────────────── -->
       <div class="page active" id="page-converter">
         <h2>Converter CSV → EDI</h2>
-        <p class="page-desc">Selecione o arquivo CSV exportado do portal Cielo e a pasta de saída.</p>
+        <p class="page-desc">Selecione a adquirente, o arquivo CSV exportado do portal e a pasta de saída.</p>
+
+        <!-- Seletor de Adquirente -->
+        <div class="card">
+          <div class="card-title">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4zm2-1a1 1 0 0 0-1 1v1h14V4a1 1 0 0 0-1-1H2zm13 4H1v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7z"/></svg>
+            <span>Adquirente</span>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:4px">
+            <label id="lbl-cielo" class="adq-btn adq-active" onclick="selecionarAdquirente('cielo')">
+              <input type="radio" name="adquirente" value="cielo" checked style="display:none">
+              <span class="adq-icon">🔵</span> Cielo
+            </label>
+            <label id="lbl-rede" class="adq-btn" onclick="selecionarAdquirente('rede')">
+              <input type="radio" name="adquirente" value="rede" style="display:none">
+              <span class="adq-icon">🔴</span> Rede
+            </label>
+            <label id="lbl-getnet" class="adq-btn" onclick="selecionarAdquirente('getnet')">
+              <input type="radio" name="adquirente" value="getnet" style="display:none">
+              <span class="adq-icon">🟡</span> Getnet
+            </label>
+          </div>
+        </div>
 
         <!-- Arquivo CSV -->
         <div class="card">
@@ -260,10 +310,10 @@
           </div>
 
           <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
-            <input type="file" id="fileInput" accept=".csv,.CSV" style="display:none" onchange="onFileSelected(event)">
+            <input type="file" id="fileInput" accept=".csv,.CSV,.xlsx,.XLSX" style="display:none" onchange="onFileSelected(event)">
             <div class="dropzone-icon" id="dropIcon">📂</div>
-            <div class="dropzone-text" id="dropText">Clique ou arraste o arquivo CSV aqui</div>
-            <div class="dropzone-sub" id="dropSub">Exportação do portal Cielo · separador ; · encoding latin-1</div>
+            <div class="dropzone-text" id="dropText">Clique ou arraste o arquivo aqui</div>
+            <div class="dropzone-sub" id="dropSub" id="dropSub">Exportação do portal · separador ;</div>
           </div>
 
           <!-- Preview -->
@@ -419,7 +469,7 @@
         <div class="card">
           <div class="card-title"><span>Sobre</span></div>
           <div style="font-size:13px;color:var(--text-muted)">
-            <div>Versão: <strong style="color:var(--text)">1.1.0</strong></div>
+            <div>Versão: <strong style="color:var(--text)">1.2.0</strong></div>
             <div>Especificação: <strong style="color:var(--text)">Manual Extrato Eletrônico Cielo v15.15 (fev/2026)</strong></div>
             <div>Suporte: <strong style="color:var(--text)">CIELO04 — Liquidação/Pagamento</strong></div>
             <div style="margin-top:8px">Registros gerados: <strong style="color:var(--text)">0 · D · E · 9</strong></div>
@@ -439,7 +489,26 @@ const state = {
   historico:     [],
   ultimaPasta:   '',
   ultimoArquivo: '',
+  adquirente:    'cielo',
 };
+
+function selecionarAdquirente(adq) {
+  state.adquirente = adq;
+  ['cielo','rede','getnet'].forEach(a => {
+    const lbl = document.getElementById('lbl-'+a);
+    if (lbl) lbl.classList.toggle('adq-active', a === adq);
+  });
+  // Atualizar dica do dropzone
+  const sub = document.getElementById('dropSub');
+  if (sub && !state.arquivoCSV) {
+    const dicas = {
+      cielo:  'Exportação do portal Cielo · separador ; · encoding latin-1',
+      rede:   'Exportação do portal Rede · separador ; · encoding utf-8',
+      getnet: 'Exportação do portal Getnet · planilha XLSX (aba Detalhado)',
+    };
+    sub.textContent = dicas[adq] || 'Exportação do portal · separador ;';
+  }
+}
 
 // ── Inicialização ────────────────────────────────────────────
 async function init() {
@@ -532,7 +601,7 @@ async function processarArquivo(file) {
 
 async function mostrarPreview(caminho) {
   try {
-    const r = await fetch('/api/preview_csv?arquivo=' + encodeURIComponent(caminho));
+    const r = await fetch('/api/preview_csv?arquivo=' + encodeURIComponent(caminho) + '&adquirente=' + encodeURIComponent(state.adquirente));
     const d = await r.json();
 
     if (!d.ok) {
@@ -602,7 +671,7 @@ async function executarConversao() {
     const r = await fetch('/api/converter', {
       method:  'POST',
       headers: {'Content-Type': 'application/json'},
-      body:    JSON.stringify({ arquivo_csv: state.arquivoCSV, pasta_saida: pastaSaida }),
+      body:    JSON.stringify({ arquivo_csv: state.arquivoCSV, pasta_saida: pastaSaida, adquirente: state.adquirente }),
     });
     const d = await r.json();
 
@@ -754,7 +823,7 @@ function limpar() {
   state.arquivoCSV = null;
   document.getElementById('dropzone').classList.remove('has-file');
   document.getElementById('dropIcon').textContent = '📂';
-  document.getElementById('dropText').textContent = 'Clique ou arraste o arquivo CSV aqui';
+  document.getElementById('dropText').textContent = 'Clique ou arraste o arquivo aqui';
   document.getElementById('dropSub').textContent  = 'Exportação do portal Cielo · separador ; · encoding latin-1';
   document.getElementById('previewArea').style.display = 'none';
   document.getElementById('btnConverter').disabled = true;

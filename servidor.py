@@ -19,11 +19,45 @@ BASE_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(BASE_DIR))
 
 try:
-    from cielo_csv_para_edi import converter, ler_csv, _parse_valor
-    CONVERSOR_OK = True
+    from cielo_csv_para_edi import converter as _converter_cielo
+    from cielo_csv_para_edi import ler_csv as _ler_csv_cielo
+    from cielo_csv_para_edi import _parse_valor
+    CIELO_OK = True
 except ImportError as e:
-    CONVERSOR_OK = False
+    CIELO_OK = False
     IMPORT_ERROR = str(e)
+
+try:
+    from rede_csv_para_edi import converter as _converter_rede
+    REDE_OK = True
+except ImportError:
+    REDE_OK = False
+
+try:
+    from getnet_csv_para_edi import converter as _converter_getnet
+    GETNET_OK = True
+except ImportError:
+    GETNET_OK = False
+
+CONVERSOR_OK = CIELO_OK  # compatibilidade
+
+def _converter_por_adquirente(adquirente: str, csv_path: str, pasta_saida: str) -> str:
+    """Despacha para o conversor correto conforme adquirente."""
+    adq = str(adquirente or "cielo").strip().lower()
+    if adq == "rede":
+        if not REDE_OK:
+            raise ImportError("Módulo rede_csv_para_edi não carregado.")
+        return _converter_rede(csv_path, pasta_saida)
+    elif adq == "getnet":
+        if not GETNET_OK:
+            raise ImportError("Módulo getnet_csv_para_edi não carregado.")
+        # forcar_lq=True: o conciliador só reconhece o indicador 'LQ' (liquidado);
+        # 'PF' faz o arquivo inteiro ser rejeitado.
+        return _converter_getnet(csv_path, pasta_saida, forcar_lq=True)
+    else:
+        if not CIELO_OK:
+            raise ImportError("Módulo cielo_csv_para_edi não carregado.")
+        return _converter_cielo(csv_path, pasta_saida)
 
 
 PORT = 8765
@@ -81,7 +115,7 @@ class CieloHandler(http.server.BaseHTTPRequestHandler):
             self._send_json({
                 "ok": CONVERSOR_OK,
                 "erro": "" if CONVERSOR_OK else IMPORT_ERROR,
-                "versao": "1.1.0",
+                "versao": "1.2.0",
             })
             return
 
@@ -98,6 +132,10 @@ class CieloHandler(http.server.BaseHTTPRequestHandler):
                 str(f) for f in p.glob("*.csv")
             ) + sorted(
                 str(f) for f in p.glob("*.CSV")
+            ) + sorted(
+                str(f) for f in p.glob("*.xlsx")
+            ) + sorted(
+                str(f) for f in p.glob("*.XLSX")
             )
             self._send_json({"arquivos": list(dict.fromkeys(arquivos)), "pasta": str(p)})
             return
@@ -105,17 +143,60 @@ class CieloHandler(http.server.BaseHTTPRequestHandler):
         if path == "/api/preview_csv":
             qs    = parse_qs(parsed.query)
             arq   = qs.get("arquivo", [""])[0]
+            adq   = qs.get("adquirente", ["cielo"])[0].lower()
             if not arq or not Path(arq).exists():
                 self._send_json({"erro": "Arquivo não encontrado"}, 400)
                 return
             try:
-                linhas, meta = ler_csv(arq)
-                total = len(linhas)
-                creditos  = sum(1 for r in linhas if _parse_valor(r.get("Valor bruto","0")) > 0)
+                # GetNet: planilha XLSX (aba Detalhado) — tratamento próprio
+                if adq == "getnet":
+                    if not GETNET_OK:
+                        self._send_json({"ok": False, "erro": "Módulo getnet_csv_para_edi não carregado."}, 500)
+                        return
+                    from getnet_csv_para_edi import ler_xlsx as _ler_getnet, _classificar
+                    linhas, meta = _ler_getnet(arq)
+                    total    = len(linhas)
+                    creditos = sum(1 for r in linhas if _classificar(r) in ("venda", "liquidacao"))
+                    debitos  = total - creditos
+                    estabs   = sorted(set(r.get("estabelecimento", "").strip() for r in linhas if r.get("estabelecimento")))
+                    bandeiras = sorted(set(r.get("bandeira", "").strip() for r in linhas if r.get("bandeira")))
+                    di = meta.get("venc_min")
+                    df = meta.get("venc_max")
+                    self._send_json({
+                        "ok": True,
+                        "total_linhas": total,
+                        "creditos": creditos,
+                        "debitos": debitos,
+                        "estabelecimentos": estabs,
+                        "bandeiras": bandeiras,
+                        "data_ini": di.strftime("%d/%m/%Y") if di else "",
+                        "data_fim": df.strftime("%d/%m/%Y") if df else "",
+                        "meta": {"ignoradas_saldo": meta.get("ignoradas_saldo", 0),
+                                 "cpf_cnpj": meta.get("cpf_cnpj", "")},
+                    })
+                    return
+
+                # Selecionar ler_csv e nomes de colunas conforme adquirente
+                if adq == "rede":
+                    from rede_csv_para_edi import ler_csv as _ler
+                    col_vb   = "valor bruto da parcela original"
+                    col_estab = "estabelecimento"
+                    col_band  = "bandeira"
+                    col_data  = "data do recebimento"
+                else:
+                    from cielo_csv_para_edi import ler_csv as _ler
+                    col_vb   = "Valor bruto"
+                    col_estab = "Estabelecimento"
+                    col_band  = "Bandeira"
+                    col_data  = "Data de pagamento"
+
+                linhas, meta = _ler(arq)
+                total     = len(linhas)
+                creditos  = sum(1 for r in linhas if _parse_valor(r.get(col_vb, "0")) > 0)
                 debitos   = total - creditos
-                estabs    = sorted(set(r.get("Estabelecimento","").strip() for r in linhas if r.get("Estabelecimento")))
-                bandeiras = sorted(set(r.get("Bandeira","").strip() for r in linhas if r.get("Bandeira")))
-                datas_pag = sorted(set(r.get("Data de pagamento","").strip() for r in linhas if r.get("Data de pagamento")))
+                estabs    = sorted(set(r.get(col_estab, "").strip() for r in linhas if r.get(col_estab)))
+                bandeiras = sorted(set(r.get(col_band, "").strip() for r in linhas if r.get(col_band)))
+                datas_pag = sorted(set(r.get(col_data, "").strip() for r in linhas if r.get(col_data)))
                 self._send_json({
                     "ok": True,
                     "total_linhas": total,
@@ -222,8 +303,8 @@ class CieloHandler(http.server.BaseHTTPRequestHandler):
                             break
                 if not nome_arquivo:
                     continue
-                if not nome_arquivo.lower().endswith(".csv"):
-                    self._send_json({"erro": "Apenas arquivos .csv são aceitos"}, 400)
+                if not (nome_arquivo.lower().endswith(".csv") or nome_arquivo.lower().endswith(".xlsx")):
+                    self._send_json({"erro": "Apenas arquivos .csv ou .xlsx são aceitos"}, 400)
                     return
                 input_dir = BASE_DIR / "input"
                 input_dir.mkdir(exist_ok=True)
@@ -233,7 +314,7 @@ class CieloHandler(http.server.BaseHTTPRequestHandler):
             if destino and destino.exists():
                 self._send_json({"ok": True, "arquivo": str(destino), "nome": destino.name})
             else:
-                self._send_json({"erro": "Nenhum arquivo CSV encontrado no upload"}, 400)
+                self._send_json({"erro": "Nenhum arquivo CSV ou XLSX encontrado no upload"}, 400)
             return
 
         # Demais rotas usam JSON
@@ -251,6 +332,7 @@ class CieloHandler(http.server.BaseHTTPRequestHandler):
 
             arquivo_csv = data.get("arquivo_csv", "")
             pasta_saida = data.get("pasta_saida", "")
+            adquirente  = data.get("adquirente", "cielo")
 
             if not arquivo_csv:
                 self._send_json({"ok": False, "erro": "Caminho do CSV não informado."}, 400)
@@ -268,7 +350,7 @@ class CieloHandler(http.server.BaseHTTPRequestHandler):
             erro_fatal = None
 
             try:
-                resultado_path = converter(arquivo_csv, pasta_saida)
+                resultado_path = _converter_por_adquirente(adquirente, arquivo_csv, pasta_saida)
             except Exception as e:
                 erro_fatal = traceback.format_exc()
             finally:
